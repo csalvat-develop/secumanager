@@ -1,0 +1,52 @@
+GNU GENERAL PUBLIC LICENSE
+Version 3, 29 June 2007
+
+Copyright (C) 2026 Cédric SALVAT
+
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+───────────────────────────────────────────────────────────────────────────────
+TRADUCTION FRANÇAISE (à titre informatif — seul le texte anglais fait foi)
+───────────────────────────────────────────────────────────────────────────────
+
+LICENCE PUBLIQUE GÉNÉRALE GNU
+Version 3, 29 juin 2007
+
+Copyright (C) 2026 Cédric SALVAT
+
+Ce programme est un logiciel libre : vous pouvez le redistribuer et/ou
+le modifier selon les termes de la Licence Publique Générale GNU telle
+que publiée par la Free Software Foundation, soit la version 3 de la
+Licence, soit (à votre choix) toute version ultérieure.
+
+Ce programme est distribué dans l'espoir qu'il sera utile, mais SANS
+AUCUNE GARANTIE, sans même la garantie implicite de QUALITÉ MARCHANDE
+ou d'ADÉQUATION À UN USAGE PARTICULIER. Consultez la Licence Publique
+Générale GNU pour plus de détails.
+
+Vous devriez avoir reçu une copie de la Licence Publique Générale GNU
+avec ce programme. Dans le cas contraire, consultez :
+<https://www.gnu.org/licenses/>.
+
+───────────────────────────────────────────────────────────────────────────────
+CE QUE CELA IMPLIQUE CONCRÈTEMENT
+───────────────────────────────────────────────────────────────────────────────
+
+✔  Utilisation libre, y compris commerciale
+✔  Modification et redistribution autorisées
+✔  Le code source doit toujours être fourni avec le logiciel
+✔  Tout projet dérivé doit être publié sous GPL v3 (effet copyleft)
+✘  Personne ne peut intégrer ce code dans un logiciel propriétaire fermé
+
+Texte intégral de la licence : https://www.gnu.org/licenses/gpl-3.0.fr.html

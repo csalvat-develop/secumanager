@@ -1,0 +1,85 @@
+[project]
+name = "secu_manager"
+version = "0.6.0"
+description = "Gestion des sorties de plongee FFESSM (CSSA)"
+requires-python = ">=3.9"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+authors = [
+    { name = "Cedric SALVAT", email = "cs.develop@free.fr" }
+]
+maintainers = [
+    { name = "CS-DEV" }
+]
+dependencies = [
+    "flet>=0.85,<0.86",
+    "fpdf2",
+]
+
+# --- Configuration Flet build ---
+[tool.flet]
+# org : prefixe utilise pour deriver le bundle ID si non
+# explicite. On le force explicitement plus bas pour
+# Android, donc cette valeur sert surtout aux autres
+# plateformes.
+org = "fr.csdev"
+
+# product : nom affiche sous l'icone de l'app sur Android
+# et iOS, et titre des fenetres sur Desktop. Doit etre
+# lisible et joli (majuscules, espace possibles).
+product = "Secu Manager"
+
+# company : information editeur (affichee dans certaines
+# metadonnees, dialogues "A propos" desktop).
+company = "CS-DEV"
+
+# Copyright affiche dans certaines metadonnees
+copyright = "Copyright (C) 2026 Cedric SALVAT - GPL-3.0-or-later"
+
+# Numero de build entier strictement croissant. Le Play
+# Store l'utilise comme versionCode Android pour
+# identifier chaque mise a jour. Convention : 504 pour
+# 0.5.4, 505 pour 0.5.5, 600 pour 0.6.0, 1000 pour 1.0.0.
+# A incrementer obligatoirement avant chaque nouvel
+# upload sur la Play Console.
+build_number = 600
+
+[tool.flet.app]
+# Dossier contenant main.py et le sous-dossier assets/
+path = "src"
+
+# --- Configuration Android specifique ---
+[tool.flet.android]
+# Bundle ID explicite, en minuscules (convention Android
+# stricte). Une fois publie sur le Play Store,
+# NE PAS LE CHANGER : tout changement creerait une app
+# differente aux yeux d'Android.
+bundle_id = "fr.csdev.secumanager"
+
+# Permissions Android necessaires :
+# - INTERNET pour envoi SMTP des fiches de securite
+# - READ_EXTERNAL_STORAGE / READ_MEDIA_IMAGES pour
+#   FilePicker (logos et imports Excel/CSV)
+permissions = [
+    "android.permission.INTERNET",
+    "android.permission.READ_EXTERNAL_STORAGE",
+    "android.permission.READ_MEDIA_IMAGES",
+]
+
+# --- Exclusions de build ---
+[tool.flet.app.exclude]
+# Eviter d'embarquer fichiers de developpement ou caches
+patterns = [
+    "**/__pycache__",
+    "**/*.pyc",
+    "**/.git",
+    "**/.venv",
+    "**/build",
+    "**/dist",
+    "**/Fiches_*",
+    "**/Sortie_*.json",
+    "**/backup_*.db",
+    "**/avant_restore_*.db",
+    "**/*.db",
+    "**/*.jks",
+]

@@ -1,0 +1,88 @@
+# ============================================================
+# .gitignore — Secu Manager
+# ============================================================
+# Fichiers et dossiers que Git doit IGNORER.
+# CRITIQUE : protège les données personnelles et les secrets.
+# ============================================================
+
+# ----- SECRETS ABSOLUS (ne JAMAIS commiter) -----
+
+# Clés de signature Android
+*.jks
+*.keystore
+secumanager-upload*
+key.properties
+
+# Mots de passe, configurations sensibles
+.env
+.env.*
+*.secret
+secrets/
+
+# ----- DONNÉES PERSONNELLES (RGPD) -----
+
+# Base de données contenant les licenciés FFESSM
+*.db
+*.sqlite
+*.sqlite3
+suivi_plongee*
+
+# Exports / sauvegardes qui contiennent des données utilisateurs
+Fiches_*/
+Sortie_*.json
+backup_*.db
+avant_restore_*.db
+Inscriptions_*.csv
+
+# Fichiers d'import FFESSM (licenciés)
+*.xlsx
+*.xls
+*licencies*
+*ffessm*
+
+# ----- ARTÉFACTS DE BUILD -----
+
+# Dossiers générés par flet build
+build/
+dist/
+*.apk
+*.aab
+
+# Cache Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+.Python
+
+# Environnement virtuel
+.venv/
+venv/
+env/
+ENV/
+
+# ----- ÉDITEURS / IDE -----
+
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ----- DIVERS -----
+
+# Logs
+*.log
+logs/
+
+# Fichiers temporaires
+*.tmp
+*.temp
+*.bak
+
+
+# ----- Anciennes versions -----
+autresVersions/
