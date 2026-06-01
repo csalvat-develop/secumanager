@@ -69,7 +69,7 @@ def clean_txt(s):
 # VERSION
 # =====================================================
 
-APP_VERSION = "0.6.0"
+APP_VERSION = "0.6.1"
 
 # =====================================================
 # BASE SQLITE
@@ -5839,6 +5839,389 @@ def main(page: ft.Page):
 
     t4_save_btn.on_click = t4_save_palanquee
 
+    def t4_open_duplication(e=None):
+        """Duplique une ou plusieurs palanquées de la
+        plongée courante vers une autre plongée de la
+        même sortie. Vérifie d'abord la disponibilité
+        des plongeurs dans la cible."""
+
+        # Garde-fous
+        if not state.get("sortie_id"):
+            show_message(
+                "Aucune sortie active."
+            )
+            return
+        if not state.get("t4_current"):
+            show_message(
+                "Sélectionne d'abord une plongée"
+                " source dans le combo."
+            )
+            return
+
+        dj_src, num_src = state["t4_current"]
+
+        # Lire les palanquées de la plongée source
+        conn = sqlite3.connect(DB_PATH)
+        pals_src = conn.execute(
+            "SELECT id, ordre, type, prof_max,"
+            " duree_max, dtr_max"
+            " FROM palanquees_sortie"
+            " WHERE sortie_id=? AND date_jour=?"
+            " AND num_plongee=?"
+            " ORDER BY ordre",
+            (state["sortie_id"], dj_src, num_src)
+        ).fetchall()
+
+        if not pals_src:
+            conn.close()
+            show_message(
+                "Aucune palanquée à dupliquer"
+                " dans la plongée source."
+            )
+            return
+
+        # Lire les autres plongées de la sortie
+        autres = [
+            (d, n) for (d, n) in [
+                state["_t4_map"][lbl]
+                for lbl in state["_t4_map"]
+            ]
+            if (d, n) != (dj_src, num_src)
+        ]
+        if not autres:
+            conn.close()
+            show_message(
+                "Aucune autre plongée disponible"
+                " comme cible."
+            )
+            return
+
+        conn.close()
+
+        # État local du dialogue
+        checks_pal = {}  # pal_id -> Checkbox
+        for pal_id, ordre, ttype, _, _, _ in pals_src:
+            checks_pal[pal_id] = ft.Checkbox(
+                label=f"Palanquée {ordre} — {ttype}",
+                value=True
+            )
+
+        # Combobox de plongée cible
+        cible_combo = ft.Dropdown(
+            label="Plongée cible",
+            dense=True,
+            options=[
+                ft.DropdownOption(
+                    f"{d} P{n}",
+                    data=(d, n)
+                )
+                for (d, n) in autres
+            ]
+        )
+
+        # Zone d'affichage du résultat de vérification
+        result_col = ft.Column(
+            tight=True, spacing=4
+        )
+
+        # État pour savoir si la vérif est OK
+        verif_state = {"ok": False, "data": None}
+
+        btn_dupliquer = ft.FilledButton(
+            "✅ Dupliquer",
+            bgcolor="#10b981", color="white",
+            disabled=True
+        )
+
+        def do_verify(ev):
+            verif_state["ok"] = False
+            verif_state["data"] = None
+            btn_dupliquer.disabled = True
+            result_col.controls.clear()
+
+            cible = cible_combo.value
+            if not cible:
+                result_col.controls.append(
+                    ft.Text(
+                        "Choisis une plongée cible.",
+                        color="#ef4444", size=12
+                    )
+                )
+                page.update()
+                return
+
+            # Retrouver (date, num) de la cible
+            dj_dst, num_dst = None, None
+            for opt in cible_combo.options:
+                if opt.key == cible:
+                    dj_dst, num_dst = opt.data
+                    break
+            if dj_dst is None:
+                return
+
+            # Liste des palanquées cochées
+            pals_chosen = [
+                p for p in pals_src
+                if checks_pal[p[0]].value
+            ]
+            if not pals_chosen:
+                result_col.controls.append(
+                    ft.Text(
+                        "Coche au moins une palanquée.",
+                        color="#ef4444", size=12
+                    )
+                )
+                page.update()
+                return
+
+            conn = sqlite3.connect(DB_PATH)
+
+            # Plongeurs déjà placés dans une palanquée
+            # de la cible
+            placed = set(r[0] for r in conn.execute(
+                "SELECT DISTINCT pm.participant_id"
+                " FROM palanquee_membres pm"
+                " JOIN palanquees_sortie ps"
+                " ON ps.id = pm.palanquee_id"
+                " WHERE ps.sortie_id=?"
+                " AND ps.date_jour=?"
+                " AND ps.num_plongee=?",
+                (state["sortie_id"], dj_dst, num_dst)
+            ).fetchall())
+
+            # Plongeurs inscrits à la cible
+            inscrits = set(r[0] for r in conn.execute(
+                "SELECT participant_id"
+                " FROM plongees_realisees"
+                " WHERE date_jour=?"
+                " AND num_plongee=?",
+                (dj_dst, num_dst)
+            ).fetchall())
+
+            ok_global = True
+            details = []  # éléments visuels
+            data_pals = []
+
+            for pal in pals_chosen:
+                pal_id = pal[0]
+                ordre = pal[1]
+                ttype = pal[2]
+
+                # Membres de cette palanquée
+                membres = conn.execute(
+                    "SELECT pm.participant_id, pa.nom,"
+                    " pa.prenom, pm.role, pm.gaz,"
+                    " pm.aptitude"
+                    " FROM palanquee_membres pm"
+                    " JOIN participants pa"
+                    " ON pa.id = pm.participant_id"
+                    " WHERE pm.palanquee_id=?",
+                    (pal_id,)
+                ).fetchall()
+
+                details.append(
+                    ft.Text(
+                        f"Palanquée {ordre} — {ttype}",
+                        weight=ft.FontWeight.BOLD,
+                        size=12
+                    )
+                )
+
+                membres_data = []
+                pal_ok = True
+                for (pid, nom, prenom, role,
+                     gaz, aptitude) in membres:
+                    nom_aff = f"{nom} {prenom}".strip()
+                    if pid in placed:
+                        icon = "🚫"
+                        col = "#ef4444"
+                        raison = (
+                            " — DÉJÀ dans une palanquée"
+                        )
+                        pal_ok = False
+                    elif pid not in inscrits:
+                        icon = "🚫"
+                        col = "#ef4444"
+                        raison = " — PAS INSCRIT"
+                        pal_ok = False
+                    else:
+                        icon = "✓"
+                        col = "#10b981"
+                        raison = ""
+                    details.append(
+                        ft.Text(
+                            f"   {icon} {nom_aff}"
+                            f" ({role}){raison}",
+                            size=11,
+                            color=col
+                        )
+                    )
+                    membres_data.append({
+                        "pid": pid, "role": role,
+                        "gaz": gaz, "aptitude": aptitude
+                    })
+
+                if not pal_ok:
+                    ok_global = False
+                data_pals.append({
+                    "src": pal,
+                    "membres": membres_data
+                })
+
+            conn.close()
+
+            # Affichage
+            result_col.controls.extend(details)
+            if ok_global:
+                result_col.controls.append(
+                    ft.Text(
+                        "✅ Tous les plongeurs sont"
+                        " disponibles.",
+                        size=12, color="#10b981",
+                        weight=ft.FontWeight.BOLD
+                    )
+                )
+                verif_state["ok"] = True
+                verif_state["data"] = {
+                    "dj_dst": dj_dst,
+                    "num_dst": num_dst,
+                    "pals": data_pals
+                }
+                btn_dupliquer.disabled = False
+            else:
+                result_col.controls.append(
+                    ft.Text(
+                        "🚫 Duplication impossible :"
+                        " corrige d'abord les"
+                        " indisponibilités.",
+                        size=12, color="#ef4444",
+                        weight=ft.FontWeight.BOLD
+                    )
+                )
+
+            page.update()
+
+        def do_duplicate(ev):
+            if not verif_state["ok"]:
+                return
+            data = verif_state["data"]
+            dj_dst = data["dj_dst"]
+            num_dst = data["num_dst"]
+
+            conn = sqlite3.connect(DB_PATH)
+            c = conn.cursor()
+
+            # Trouver le prochain ordre dans la cible
+            row = c.execute(
+                "SELECT COALESCE(MAX(ordre), 0)"
+                " FROM palanquees_sortie"
+                " WHERE sortie_id=? AND date_jour=?"
+                " AND num_plongee=?",
+                (state["sortie_id"], dj_dst, num_dst)
+            ).fetchone()
+            next_ordre = (row[0] or 0) + 1
+
+            nb_dup = 0
+            for d in data["pals"]:
+                src = d["src"]
+                _, _, ttype, prof_max, duree_max, \
+                    dtr_max = src
+
+                c.execute(
+                    "INSERT INTO palanquees_sortie"
+                    "(sortie_id, date_jour, num_plongee,"
+                    " ordre, type, prof_max, duree_max,"
+                    " dtr_max) VALUES(?,?,?,?,?,?,?,?)",
+                    (state["sortie_id"], dj_dst,
+                     num_dst, next_ordre, ttype,
+                     prof_max, duree_max, dtr_max)
+                )
+                new_pal_id = c.lastrowid
+
+                for m in d["membres"]:
+                    c.execute(
+                        "INSERT INTO palanquee_membres"
+                        "(palanquee_id, participant_id,"
+                        " role, gaz, aptitude)"
+                        " VALUES(?,?,?,?,?)",
+                        (new_pal_id, m["pid"],
+                         m["role"], m["gaz"],
+                         m["aptitude"])
+                    )
+
+                next_ordre += 1
+                nb_dup += 1
+
+            conn.commit()
+            conn.close()
+
+            close_dialog(dup_dlg)
+            show_message(
+                f"{nb_dup} palanquée(s) dupliquée(s)"
+                f" vers {dj_dst} P{num_dst}."
+            )
+            # Rafraîchir l'affichage si la cible est
+            # la plongée actuellement sélectionnée
+            t4_refresh_palanquees_display()
+
+        btn_dupliquer.on_click = do_duplicate
+
+        dup_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "🔁 Dupliquer des palanquées",
+                weight=ft.FontWeight.BOLD
+            ),
+            content=ft.Container(
+                width=_w(460),
+                height=_w(520),
+                content=ft.Column(
+                    tight=True,
+                    spacing=12,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        ft.Text(
+                            f"Source : {dj_src} P{num_src}",
+                            size=12,
+                            color="#64748b"
+                        ),
+                        ft.Text(
+                            "Palanquées à dupliquer :",
+                            weight=ft.FontWeight.BOLD,
+                            size=12
+                        ),
+                        ft.Column(
+                            tight=True,
+                            spacing=2,
+                            controls=list(
+                                checks_pal.values()
+                            )
+                        ),
+                        ft.Divider(),
+                        cible_combo,
+                        ft.Row([
+                            ft.OutlinedButton(
+                                "🔍 Vérifier la"
+                                " disponibilité",
+                                on_click=do_verify
+                            ),
+                        ], wrap=True),
+                        ft.Divider(),
+                        result_col,
+                    ]
+                )
+            ),
+            actions=[
+                ft.TextButton(
+                    "Annuler",
+                    on_click=lambda ev:
+                        close_dialog(dup_dlg)
+                ),
+                btn_dupliquer,
+            ]
+        )
+        page.show_dialog(dup_dlg)
+
     def t4_refresh_palanquees_display():
 
         t4_palanquees_column.controls.clear()
@@ -6416,6 +6799,202 @@ def main(page: ft.Page):
     # façon fiable via pop_dialog().
     # =================================================
 
+    def open_caci_verification(e=None):
+        """Vérification CACI : affiche les plongeurs du
+        référentiel club dont le CACI est périmé ou en
+        alerte (à moins de 30 jours, ou avant la fin de
+        la sortie active si applicable)."""
+        from datetime import datetime, timedelta
+
+        aujourdhui = datetime.now().date()
+
+        # Référence d'alerte : fin de sortie ou +30 jours
+        ref_alerte = aujourdhui + timedelta(days=30)
+        if state.get("sortie_id"):
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                row = conn.execute(
+                    "SELECT date_fin FROM sorties"
+                    " WHERE id=?",
+                    (state["sortie_id"],)
+                ).fetchone()
+                conn.close()
+                if row and row[0]:
+                    # date_fin au format DD/MM/YYYY
+                    try:
+                        d_fin = datetime.strptime(
+                            row[0], "%d/%m/%Y"
+                        ).date()
+                        ref_alerte = d_fin
+                    except Exception:
+                        pass
+            except Exception as err:
+                print("CACI ref date:", err)
+
+        # Récupération de tous les plongeurs du club
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            rows = conn.execute(
+                "SELECT nom, prenom, niveau, caci_date"
+                " FROM plongeurs_club"
+                " WHERE caci_date IS NOT NULL"
+                " AND caci_date != ''"
+            ).fetchall()
+            conn.close()
+        except Exception as err:
+            show_message(f"Erreur lecture base : {err}")
+            return
+
+        # Classement périmés / alerte
+        perimes = []
+        alertes = []
+        for nom, prenom, niveau, caci_str in rows:
+            try:
+                d_caci = datetime.strptime(
+                    caci_str, "%d/%m/%Y"
+                ).date()
+            except Exception:
+                continue
+            if d_caci < aujourdhui:
+                perimes.append(
+                    (nom, prenom, niveau, caci_str, d_caci)
+                )
+            elif d_caci < ref_alerte:
+                alertes.append(
+                    (nom, prenom, niveau, caci_str, d_caci)
+                )
+
+        # Tri par date croissante (le plus urgent d'abord)
+        perimes.sort(key=lambda x: x[4])
+        alertes.sort(key=lambda x: x[4])
+
+        # Construction du dialogue
+        controls = [
+            ft.Text(
+                f"Référence : alerte si CACI <"
+                f" {ref_alerte.strftime('%d/%m/%Y')}",
+                size=11,
+                italic=True,
+                color="#64748b"
+            ),
+        ]
+
+        if not perimes and not alertes:
+            controls.append(
+                ft.Text(
+                    "✅ Aucun CACI périmé ou en alerte.",
+                    size=13,
+                    weight=ft.FontWeight.BOLD,
+                    color="#10b981"
+                )
+            )
+
+        def make_line(nom, prenom, niveau, caci_str, color):
+            # Faux entry_dict pour réutiliser
+            # show_plongeur_fiche existant
+            fake_entry = {
+                "nom": type("F", (), {
+                    "value": nom
+                })(),
+                "prenom": type("F", (), {
+                    "value": prenom
+                })(),
+            }
+            niv_aff = niveau or "—"
+            return ft.Container(
+                content=ft.Row(
+                    spacing=8,
+                    controls=[
+                        ft.Text(
+                            f"{nom} {prenom}",
+                            size=12,
+                            weight=ft.FontWeight.BOLD,
+                            expand=2
+                        ),
+                        ft.Text(
+                            niv_aff,
+                            size=11,
+                            color="#64748b",
+                            expand=1
+                        ),
+                        ft.Text(
+                            caci_str,
+                            size=11,
+                            color=color,
+                            weight=ft.FontWeight.BOLD,
+                            expand=1
+                        ),
+                    ]
+                ),
+                padding=6,
+                ink=True,
+                on_click=lambda ev: (
+                    close_dialog(caci_dlg),
+                    show_plongeur_fiche(fake_entry)
+                ),
+                border=ft.border.only(
+                    bottom=ft.BorderSide(1, "#e2e8f0")
+                ),
+            )
+
+        if perimes:
+            controls.append(
+                ft.Text(
+                    f"🔴 CACI périmés ({len(perimes)})",
+                    size=13,
+                    weight=ft.FontWeight.BOLD,
+                    color="#ef4444"
+                )
+            )
+            for nom, prenom, niv, caci, _ in perimes:
+                controls.append(
+                    make_line(nom, prenom, niv,
+                              caci, "#ef4444")
+                )
+
+        if alertes:
+            controls.append(ft.Container(height=8))
+            controls.append(
+                ft.Text(
+                    f"🟠 CACI en alerte"
+                    f" ({len(alertes)})",
+                    size=13,
+                    weight=ft.FontWeight.BOLD,
+                    color="#f59e0b"
+                )
+            )
+            for nom, prenom, niv, caci, _ in alertes:
+                controls.append(
+                    make_line(nom, prenom, niv,
+                              caci, "#f59e0b")
+                )
+
+        caci_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "🩺 Vérification CACI",
+                weight=ft.FontWeight.BOLD
+            ),
+            content=ft.Container(
+                width=_w(440),
+                height=_w(500),
+                content=ft.Column(
+                    tight=True,
+                    spacing=6,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=controls
+                )
+            ),
+            actions=[
+                ft.TextButton(
+                    "Fermer",
+                    on_click=lambda ev:
+                        close_dialog(caci_dlg)
+                ),
+            ]
+        )
+        page.show_dialog(caci_dlg)
+
     def _menu_action(idx):
         if idx == 0:
             nouvelle_sortie(None)
@@ -6428,6 +7007,8 @@ def main(page: ft.Page):
         elif idx == 4:
             page.run_task(import_excel, None)
         elif idx == 5:
+            open_caci_verification(None)
+        elif idx == 6:
             open_parametres()
 
     def open_drawer(e):
@@ -6438,7 +7019,9 @@ def main(page: ft.Page):
             (2, ft.Icons.FOLDER_OPEN, "Ouvrir une sortie"),
             (3, ft.Icons.DELETE, "Supprimer la sortie"),
             (4, ft.Icons.UPLOAD_FILE, "Import FFESSM"),
-            (5, ft.Icons.SETTINGS, "Paramètres"),
+            (5, ft.Icons.MEDICAL_SERVICES,
+             "Vérification CACI"),
+            (6, ft.Icons.SETTINGS, "Paramètres"),
         ]
 
         def make_handler(i):
@@ -6924,6 +7507,17 @@ def main(page: ft.Page):
                                         " plongée",
                                         weight=ft.FontWeight.BOLD
                                     ),
+
+                                    ft.Row([
+                                        ft.FilledButton(
+                                            "🔁 Dupliquer vers"
+                                            " une autre plongée",
+                                            bgcolor="#8b5cf6",
+                                            color="white",
+                                            on_click=lambda e:
+                                                t4_open_duplication()
+                                        ),
+                                    ], wrap=True),
 
                                     ft.Divider(),
 

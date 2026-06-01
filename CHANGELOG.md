@@ -8,6 +8,52 @@ et le projet adhère au [Versionnage Sémantique](https://semver.org/lang/fr/).
 
 ---
 
+## [0.6.1] — 2026-06
+
+### Ajouté
+
+- **Duplication de palanquées entre plongées** (tab4).
+  Nouveau bouton violet « 🔁 Dupliquer vers une autre plongée » en
+  haut de la section « Palanquées de la plongée ». Au clic, dialogue
+  dédié permettant de :
+  - Sélectionner par cases à cocher les palanquées de la plongée
+    source à dupliquer (toutes cochées par défaut).
+  - Choisir la plongée cible dans un combobox listant toutes les
+    autres plongées de la sortie.
+  - Vérifier la disponibilité des plongeurs : pour chaque membre des
+    palanquées sélectionnées, contrôle que le plongeur est bien
+    inscrit à la plongée cible (table `plongees_realisees`) ET qu'il
+    n'est pas déjà placé dans une palanquée de la cible.
+  - Affichage colorisé : ✓ vert pour les disponibles, 🚫 rouge pour
+    les indisponibles avec la raison (« PAS INSCRIT » ou « DÉJÀ dans
+    une palanquée »).
+  - Bouton « ✅ Dupliquer » désactivé tant que la vérification n'est
+    pas concluante. Activé uniquement quand tous les plongeurs sont
+    disponibles.
+  - À la duplication : création de nouvelles palanquées dans la cible
+    avec les mêmes paramètres (type, prof_max, duree_max, dtr_max) et
+    copie complète des membres (rôles chef/serre-file/membre, gaz,
+    aptitudes). L'ordre des nouvelles palanquées est calculé pour
+    s'ajouter à la suite des palanquées existantes de la cible.
+
+- **Vérification CACI** (menu hamburger).
+  Nouvelle entrée « 🩺 Vérification CACI » dans le menu, juste après
+  « Import FFESSM ». Ouvre un dialogue dédié qui affiche :
+  - La référence d'alerte calculée : date de fin de sortie active si
+    disponible, sinon aujourd'hui + 30 jours.
+  - Section « 🔴 CACI périmés » : tous les plongeurs du référentiel
+    `plongeurs_club` dont la date est antérieure à aujourd'hui, triés
+    par date croissante (les plus urgents en premier).
+  - Section « 🟠 CACI en alerte » : ceux dont la date est encore
+    valide aujourd'hui mais expire avant la référence d'alerte.
+  - Une ligne par plongeur avec nom, niveau et date CACI colorée
+    selon le statut.
+  - Clic sur une ligne → ouvre la fiche du plongeur via la fonction
+    existante `show_plongeur_fiche`.
+  - Message « ✅ Aucun CACI périmé ou en alerte. » si tout va bien.
+
+---
+
 ## [0.6.0] — 2026-06
 
 ### Changements importants
