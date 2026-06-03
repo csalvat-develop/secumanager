@@ -69,7 +69,7 @@ def clean_txt(s):
 # VERSION
 # =====================================================
 
-APP_VERSION = "0.6.1"
+APP_VERSION = "0.7.0"
 
 # =====================================================
 # BASE SQLITE
@@ -412,6 +412,36 @@ def init_db():
 
         )
     """)
+
+    # Centres de plongée (référentiel réutilisable
+    # entre sorties)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS centres_plongee(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            adresse TEXT,
+            gps TEXT,
+            telephone TEXT,
+            email TEXT
+        )
+    """)
+
+    # Migration : ajouter centre_id à la table sorties
+    # si elle n'existe pas déjà (sans casser les
+    # bases existantes).
+    try:
+        cols = [
+            row[1] for row in conn.execute(
+                "PRAGMA table_info(sorties)"
+            ).fetchall()
+        ]
+        if "centre_id" not in cols:
+            conn.execute(
+                "ALTER TABLE sorties"
+                " ADD COLUMN centre_id INTEGER"
+            )
+    except Exception as err:
+        print("Migration centre_id:", err)
 
     conn.commit()
     conn.close()
@@ -759,7 +789,8 @@ def main(page: ft.Page):
     sortie_nom = ft.TextField(
         label="Nom sortie",
         height=52,
-        expand=True
+        expand=True,
+        on_change=lambda e: refresh_appbar_title()
     )
 
     sortie_lieu = ft.TextField(
@@ -768,17 +799,347 @@ def main(page: ft.Page):
         expand=True
     )
 
+    # === Bloc "Centre de plongée support" (tab1) ===
+    centre_switch = ft.Switch(
+        label="Centre de plongée support",
+        value=False
+    )
+
+    centre_combo = ft.Dropdown(
+        label="Centre choisi",
+        options=[],
+        expand=True,
+        dense=True
+    )
+
+    centre_detail_btn = ft.IconButton(
+        icon=ft.Icons.INFO_OUTLINE,
+        tooltip="Détails du centre"
+    )
+
+    centre_add_btn = ft.IconButton(
+        icon=ft.Icons.ADD_CIRCLE,
+        tooltip="Ajouter un nouveau centre",
+        icon_color="#0ea5e9"
+    )
+
+    centre_row = ft.Row(
+        controls=[
+            centre_combo,
+            centre_detail_btn,
+            centre_add_btn,
+        ],
+        visible=False
+    )
+
     date_debut = ft.TextField(
         label="Date début JJ/MM/AAAA",
         height=52,
-        expand=True
+        expand=True,
+        on_change=lambda e: refresh_appbar_title()
     )
 
     date_fin = ft.TextField(
         label="Date fin JJ/MM/AAAA",
         height=52,
-        expand=True
+        expand=True,
+        on_change=lambda e: refresh_appbar_title()
     )
+
+    # === Helpers Centre de plongée ===
+
+    def refresh_centres_combo(select_id=None):
+        """Recharge la liste déroulante des centres
+        depuis la base."""
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            rows = conn.execute(
+                "SELECT id, nom FROM centres_plongee"
+                " ORDER BY nom"
+            ).fetchall()
+            conn.close()
+        except Exception:
+            rows = []
+
+        centre_combo.options = [
+            ft.DropdownOption("")
+        ] + [
+            ft.DropdownOption(
+                key=str(cid), text=nom
+            )
+            for cid, nom in rows
+        ]
+
+        if select_id is not None:
+            centre_combo.value = str(select_id)
+        # Forcer un nouveau passage update à l'appelant
+        try:
+            centre_combo.update()
+        except Exception:
+            pass
+
+    def on_centre_switch(e):
+        """Bascule visibilité de la ligne centre."""
+        centre_row.visible = bool(centre_switch.value)
+        if centre_switch.value:
+            refresh_centres_combo()
+        page.update()
+
+    centre_switch.on_change = on_centre_switch
+
+    def open_centre_add_dialog(e=None):
+        """Pop-up de saisie d'un nouveau centre."""
+        f_nom = ft.TextField(
+            label="Nom du centre", dense=True
+        )
+        f_adr = ft.TextField(
+            label="Adresse", dense=True, multiline=True,
+            max_lines=2
+        )
+        f_gps = ft.TextField(
+            label="Point GPS (lien Google Maps ou geo:)",
+            dense=True
+        )
+        f_tel = ft.TextField(
+            label="Téléphone", dense=True
+        )
+        f_mail = ft.TextField(
+            label="Email", dense=True
+        )
+
+        def enregistrer(ev):
+            nom = (f_nom.value or "").strip()
+            if not nom:
+                show_message(
+                    "Le nom du centre est obligatoire."
+                )
+                return
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cur = conn.execute(
+                    "INSERT INTO centres_plongee"
+                    " (nom, adresse, gps, telephone,"
+                    " email) VALUES (?, ?, ?, ?, ?)",
+                    (nom,
+                     (f_adr.value or "").strip(),
+                     (f_gps.value or "").strip(),
+                     (f_tel.value or "").strip(),
+                     (f_mail.value or "").strip())
+                )
+                new_id = cur.lastrowid
+                conn.commit()
+                conn.close()
+                close_dialog(add_dlg)
+                refresh_centres_combo(select_id=new_id)
+                show_message(
+                    f"Centre « {nom} » ajouté."
+                )
+            except Exception as err:
+                show_message(f"Erreur : {err}")
+
+        add_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "➕ Nouveau centre",
+                weight=ft.FontWeight.BOLD
+            ),
+            content=ft.Container(
+                width=_w(440),
+                content=ft.Column(
+                    tight=True,
+                    spacing=8,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=[
+                        f_nom, f_adr, f_gps,
+                        f_tel, f_mail,
+                    ]
+                )
+            ),
+            actions=[
+                ft.TextButton(
+                    "Annuler",
+                    on_click=lambda ev:
+                        close_dialog(add_dlg)
+                ),
+                ft.FilledButton(
+                    "Enregistrer",
+                    bgcolor="#0ea5e9", color="white",
+                    on_click=enregistrer
+                ),
+            ]
+        )
+        page.show_dialog(add_dlg)
+
+    def open_centre_detail_dialog(e=None):
+        """Affiche les détails du centre sélectionné
+        avec liens cliquables (tél, mail, maps) et un
+        bouton de suppression avec confirmation."""
+        cid = centre_combo.value
+        if not cid:
+            show_message(
+                "Sélectionne d'abord un centre."
+            )
+            return
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute(
+                "SELECT id, nom, adresse, gps,"
+                " telephone, email"
+                " FROM centres_plongee WHERE id=?",
+                (int(cid),)
+            ).fetchone()
+            conn.close()
+        except Exception as err:
+            show_message(f"Erreur : {err}")
+            return
+        if not row:
+            show_message("Centre introuvable.")
+            return
+
+        _id, nom, adr, gps, tel, mail = row
+
+        def open_url(url):
+            try:
+                page.launch_url(url)
+            except Exception as err:
+                show_message(f"Impossible d'ouvrir : {err}")
+
+        controls = [
+            ft.Text(
+                nom or "—",
+                weight=ft.FontWeight.BOLD, size=14
+            ),
+            ft.Divider(),
+        ]
+        if adr:
+            controls.append(
+                ft.Text(f"📍 {adr}", size=12)
+            )
+        if gps:
+            url_gps = gps
+            if not (gps.startswith("http")
+                    or gps.startswith("geo:")):
+                # Si c'est juste "lat,lng"
+                url_gps = f"geo:{gps}"
+            controls.append(
+                ft.TextButton(
+                    f"🗺️ Ouvrir la carte ({gps})",
+                    on_click=lambda ev, u=url_gps:
+                        open_url(u)
+                )
+            )
+        if tel:
+            controls.append(
+                ft.TextButton(
+                    f"📞 {tel}",
+                    on_click=lambda ev, t=tel:
+                        open_url(f"tel:{t}")
+                )
+            )
+        if mail:
+            controls.append(
+                ft.TextButton(
+                    f"✉️ {mail}",
+                    on_click=lambda ev, m=mail:
+                        open_url(f"mailto:{m}")
+                )
+            )
+        if len(controls) == 2:
+            controls.append(
+                ft.Text(
+                    "(aucune coordonnée enregistrée)",
+                    size=11, italic=True,
+                    color="#94a3b8"
+                )
+            )
+
+        def confirmer_supprimer(ev):
+            def confirme(ev2):
+                try:
+                    conn = sqlite3.connect(DB_PATH)
+                    conn.execute(
+                        "DELETE FROM centres_plongee"
+                        " WHERE id=?",
+                        (_id,)
+                    )
+                    # Nettoyer les sorties qui pointaient
+                    # sur ce centre
+                    conn.execute(
+                        "UPDATE sorties"
+                        " SET centre_id=NULL"
+                        " WHERE centre_id=?",
+                        (_id,)
+                    )
+                    conn.commit()
+                    conn.close()
+                    close_dialog(confirm_dlg)
+                    close_dialog(dtl_dlg)
+                    refresh_centres_combo()
+                    show_message(
+                        f"Centre « {nom} » supprimé."
+                    )
+                except Exception as err:
+                    show_message(f"Erreur : {err}")
+
+            confirm_dlg = ft.AlertDialog(
+                modal=True,
+                title=ft.Text(
+                    "⚠️ Supprimer ce centre ?",
+                    weight=ft.FontWeight.BOLD
+                ),
+                content=ft.Text(
+                    f"Le centre « {nom} » sera"
+                    " supprimé définitivement."
+                ),
+                actions=[
+                    ft.TextButton(
+                        "Annuler",
+                        on_click=lambda ev2:
+                            close_dialog(confirm_dlg)
+                    ),
+                    ft.FilledButton(
+                        "Supprimer",
+                        bgcolor="#ef4444", color="white",
+                        on_click=confirme
+                    ),
+                ]
+            )
+            page.show_dialog(confirm_dlg)
+
+        dtl_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "🏛️ Détails du centre",
+                weight=ft.FontWeight.BOLD
+            ),
+            content=ft.Container(
+                width=_w(440),
+                content=ft.Column(
+                    tight=True,
+                    spacing=4,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=controls
+                )
+            ),
+            actions=[
+                ft.TextButton(
+                    "🗑️ Supprimer",
+                    style=ft.ButtonStyle(
+                        color="#ef4444"
+                    ),
+                    on_click=confirmer_supprimer
+                ),
+                ft.TextButton(
+                    "Fermer",
+                    on_click=lambda ev:
+                        close_dialog(dtl_dlg)
+                ),
+            ]
+        )
+        page.show_dialog(dtl_dlg)
+
+    centre_detail_btn.on_click = open_centre_detail_dialog
+    centre_add_btn.on_click = open_centre_add_dialog
 
     def open_date_picker(champ):
         """Ouvre un calendrier et remplit le champ cible
@@ -879,7 +1240,7 @@ def main(page: ft.Page):
 
         "t3_locked": False,
 
-        "t2_locked": False,
+        "t2_locked": True,
 
         "t4_current": None,       # (date, num) plongée sélectionnée
 
@@ -1035,6 +1396,11 @@ def main(page: ft.Page):
         date_debut.value = ""
         date_fin.value = ""
 
+        # Reset centre
+        centre_switch.value = False
+        centre_row.visible = False
+        centre_combo.value = ""
+
         state["sortie_id"] = None
 
         jours_column.controls.clear()
@@ -1044,6 +1410,12 @@ def main(page: ft.Page):
         participants_rows_column.controls.clear()
         update_stats_part()
         refresh_plongeurs_listbox()
+
+        # Mettre à jour le titre de l'AppBar
+        try:
+            refresh_appbar_title()
+        except Exception:
+            pass
 
         page.update()
 
@@ -1101,7 +1473,8 @@ def main(page: ft.Page):
         conn = sqlite3.connect(DB_PATH)
 
         row = conn.execute(
-            "SELECT nom, lieu, date_debut, date_fin"
+            "SELECT nom, lieu, date_debut, date_fin,"
+            " centre_id"
             " FROM sorties WHERE id=?",
             (sid,)
         ).fetchone()
@@ -1111,12 +1484,22 @@ def main(page: ft.Page):
             show_message("Sortie introuvable.")
             return
 
-        nom, lieu, d_deb, d_fin = row
+        nom, lieu, d_deb, d_fin, centre_id = row
 
         sortie_nom.value = nom or ""
         sortie_lieu.value = lieu or ""
         date_debut.value = d_deb or ""
         date_fin.value = d_fin or ""
+
+        # Restaurer le centre de plongée s'il existe
+        if centre_id:
+            centre_switch.value = True
+            centre_row.visible = True
+            refresh_centres_combo(select_id=centre_id)
+        else:
+            centre_switch.value = False
+            centre_row.visible = False
+            centre_combo.value = ""
 
         state["sortie_id"] = sid
 
@@ -1198,6 +1581,12 @@ def main(page: ft.Page):
 
         update_stats_part()
         refresh_plongeurs_listbox()
+
+        # Mettre à jour le titre de l'AppBar
+        try:
+            refresh_appbar_title()
+        except Exception:
+            pass
 
         page.update()
 
@@ -1430,6 +1819,14 @@ def main(page: ft.Page):
         d_deb = (date_debut.value or "").strip()
         d_fin = (date_fin.value or "").strip()
 
+        # Centre lié (None si Switch OFF ou aucun choisi)
+        centre_id = None
+        if centre_switch.value and centre_combo.value:
+            try:
+                centre_id = int(centre_combo.value)
+            except Exception:
+                centre_id = None
+
         if not nom:
 
             show_message(
@@ -1445,12 +1842,13 @@ def main(page: ft.Page):
             cur = conn.execute("""
 
                 INSERT INTO sorties(
-                    nom, lieu, date_debut, date_fin
+                    nom, lieu, date_debut, date_fin,
+                    centre_id
                 )
 
-                VALUES (?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?)
 
-            """, (nom, lieu, d_deb, d_fin))
+            """, (nom, lieu, d_deb, d_fin, centre_id))
 
             state["sortie_id"] = cur.lastrowid
 
@@ -1461,12 +1859,13 @@ def main(page: ft.Page):
                 UPDATE sorties
 
                 SET nom=?, lieu=?,
-                    date_debut=?, date_fin=?
+                    date_debut=?, date_fin=?,
+                    centre_id=?
 
                 WHERE id=?
 
             """, (
-                nom, lieu, d_deb, d_fin,
+                nom, lieu, d_deb, d_fin, centre_id,
                 state["sortie_id"]
             ))
 
@@ -4414,15 +4813,17 @@ def main(page: ft.Page):
                 label="Exploration autonome"
             ),
 
-            ft.Radio(
-                value="Technique",
-                label="Technique"
-            ),
+            ft.Row([
+                ft.Radio(
+                    value="Technique",
+                    label="Technique"
+                ),
+                ft.Radio(
+                    value="Baptême",
+                    label="Baptême"
+                ),
+            ], spacing=8, tight=True),
 
-            ft.Radio(
-                value="Baptême",
-                label="Baptême"
-            ),
         ], tight=True, spacing=0)
     )
 
@@ -4726,8 +5127,37 @@ def main(page: ft.Page):
         return {r[0] for r in rows}
 
     def label_p(r):
+        """Construit le libellé d'un membre :
+        Nom Prénom (Niveau) -> NivPrepa - âge ans
+        - Le -> NivPrepa n'apparaît que si niveau prépa
+          est défini (en version simplifiée).
+        - L'âge n'apparaît que si le plongeur est mineur
+          (< 18 ans)."""
         nx = r[4] if len(r) > 4 else ""
-        return f"{r[1]} {r[2]} ({fmt_niveau(r[3] or '—', nx)})"
+        niv_aff = fmt_niveau(r[3] or "—", nx)
+
+        # Niveau préparé (simplifié)
+        prepa = r[5] if len(r) > 5 else ""
+        if prepa:
+            # fmt_niveau sans nitrox pour avoir la
+            # version simplifiée (N1, Or, etc.)
+            prepa_aff = fmt_niveau(prepa, "")
+            suffix_prepa = f" -> {prepa_aff}"
+        else:
+            suffix_prepa = ""
+
+        # Âge si mineur
+        naiss = r[6] if len(r) > 6 else ""
+        age = calc_age(naiss or "")
+        if age is not None and age < 18:
+            suffix_age = f" - {age} ans"
+        else:
+            suffix_age = ""
+
+        return (
+            f"{r[1]} {r[2]} ({niv_aff})"
+            f"{suffix_prepa}{suffix_age}"
+        )
 
     def t4_refresh_membres():
 
@@ -4820,15 +5250,43 @@ def main(page: ft.Page):
             if l in exclus:
                 continue
 
+            # On utilise une Checkbox sans label associée
+            # à un Text qui peut wrapper sur 2 lignes,
+            # parce que Checkbox.label ne wrap pas
+            # nativement sur Android.
             cb = ft.Checkbox(
-                label=l,
                 value=False,
                 on_change=lambda e: t4_refresh_apercu()
             )
 
             t4_state["membre_checks"][l] = cb
 
-            t4_membres_column.controls.append(cb)
+            # Container cliquable qui bascule la checkbox
+            # (zone large pour le doigt).
+            def make_toggle(cb_ref):
+                def toggle(ev):
+                    cb_ref.value = not bool(cb_ref.value)
+                    cb_ref.update()
+                    t4_refresh_apercu()
+                return toggle
+
+            row = ft.Row(
+                spacing=4,
+                vertical_alignment=
+                    ft.CrossAxisAlignment.CENTER,
+                controls=[
+                    cb,
+                    ft.Container(
+                        expand=True,
+                        on_click=make_toggle(cb),
+                        content=ft.Text(
+                            l, size=12, max_lines=2
+                        )
+                    ),
+                ]
+            )
+
+            t4_membres_column.controls.append(row)
 
         t4_refresh_apercu()
 
@@ -6799,13 +7257,120 @@ def main(page: ft.Page):
     # façon fiable via pop_dialog().
     # =================================================
 
+    def _show_caci_plongeur_fiche(nom, prenom):
+        """Affiche les détails d'un plongeur depuis la
+        base club, identifié par nom et prénom. Utilisé
+        depuis le dialogue Vérification CACI."""
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            row = conn.execute(
+                "SELECT nom, prenom, niveau, brevets,"
+                " brevet_nitrox, caci_date,"
+                " date_naissance, telephone, email"
+                " FROM plongeurs_club"
+                " WHERE UPPER(nom)=UPPER(?)"
+                " AND UPPER(prenom)=UPPER(?)",
+                (nom, prenom)
+            ).fetchone()
+            conn.close()
+        except Exception as err:
+            show_message(f"Erreur lecture : {err}")
+            return
+
+        if not row:
+            show_message(
+                f"Plongeur {nom} {prenom} introuvable"
+                " dans la base club."
+            )
+            return
+
+        (n_, p_, niveau, brevets, nx, caci, naiss,
+         tel, mail) = row
+
+        age = calc_age(naiss or "")
+        age_str = f" ({age} ans)" if age is not None else ""
+
+        lignes = [
+            ft.Text(
+                f"{n_} {p_}{age_str}",
+                weight=ft.FontWeight.BOLD,
+                size=14
+            ),
+            ft.Divider(),
+            ft.Text(
+                f"Niveau : {niveau or '—'}",
+                size=12
+            ),
+            ft.Text(
+                f"Brevets : {brevets or '—'}",
+                size=12
+            ),
+            ft.Text(
+                f"Nitrox : {nx or '—'}",
+                size=12
+            ),
+            ft.Text(
+                f"CACI : {caci or '—'}",
+                size=12,
+                color=caci_color(caci or "")
+            ),
+            ft.Text(
+                f"Naissance : {naiss or '—'}",
+                size=12
+            ),
+            ft.Text(
+                f"Téléphone : {tel or '—'}",
+                size=12
+            ),
+            ft.Text(
+                f"Email : {mail or '—'}",
+                size=12
+            ),
+        ]
+
+        fiche_dlg = ft.AlertDialog(
+            modal=True,
+            title=ft.Text(
+                "👤 Fiche plongeur",
+                weight=ft.FontWeight.BOLD
+            ),
+            content=ft.Container(
+                width=_w(420),
+                content=ft.Column(
+                    tight=True,
+                    spacing=6,
+                    scroll=ft.ScrollMode.AUTO,
+                    controls=lignes
+                )
+            ),
+            actions=[
+                ft.TextButton(
+                    "Fermer",
+                    on_click=lambda ev:
+                        close_dialog(fiche_dlg)
+                ),
+            ]
+        )
+        page.show_dialog(fiche_dlg)
+
     def open_caci_verification(e=None):
         """Vérification CACI : affiche les plongeurs du
         référentiel club dont le CACI est périmé ou en
         alerte (à moins de 30 jours, ou avant la fin de
         la sortie active si applicable)."""
-        from datetime import datetime, timedelta
+        try:
+            _open_caci_verification_impl()
+        except Exception as err:
+            import traceback
+            tb = traceback.format_exc()
+            print("=== ERREUR CACI ===")
+            print(tb)
+            show_message(
+                f"Erreur CACI : {type(err).__name__}:"
+                f" {err}"
+            )
 
+    def _open_caci_verification_impl():
         aujourdhui = datetime.now().date()
 
         # Référence d'alerte : fin de sortie ou +30 jours
@@ -6890,18 +7455,9 @@ def main(page: ft.Page):
             )
 
         def make_line(nom, prenom, niveau, caci_str, color):
-            # Faux entry_dict pour réutiliser
-            # show_plongeur_fiche existant
-            fake_entry = {
-                "nom": type("F", (), {
-                    "value": nom
-                })(),
-                "prenom": type("F", (), {
-                    "value": prenom
-                })(),
-            }
-            niv_aff = niveau or "—"
-            return ft.Container(
+            # Utiliser le nom court (N1, Or, Déb., ...)
+            niv_aff = fmt_niveau(niveau or "—", "")
+            row_content = ft.Container(
                 content=ft.Row(
                     spacing=8,
                     controls=[
@@ -6909,33 +7465,35 @@ def main(page: ft.Page):
                             f"{nom} {prenom}",
                             size=12,
                             weight=ft.FontWeight.BOLD,
-                            expand=2
+                            expand=True
                         ),
-                        ft.Text(
-                            niv_aff,
-                            size=11,
-                            color="#64748b",
-                            expand=1
+                        ft.Container(
+                            width=60,
+                            content=ft.Text(
+                                niv_aff,
+                                size=11,
+                                color="#64748b"
+                            )
                         ),
-                        ft.Text(
-                            caci_str,
-                            size=11,
-                            color=color,
-                            weight=ft.FontWeight.BOLD,
-                            expand=1
+                        ft.Container(
+                            width=90,
+                            content=ft.Text(
+                                caci_str,
+                                size=11,
+                                color=color,
+                                weight=ft.FontWeight.BOLD
+                            )
                         ),
                     ]
                 ),
                 padding=6,
                 ink=True,
-                on_click=lambda ev: (
+                on_click=lambda ev, n=nom, p=prenom: (
                     close_dialog(caci_dlg),
-                    show_plongeur_fiche(fake_entry)
-                ),
-                border=ft.border.only(
-                    bottom=ft.BorderSide(1, "#e2e8f0")
+                    _show_caci_plongeur_fiche(n, p)
                 ),
             )
+            return row_content
 
         if perimes:
             controls.append(
@@ -6976,8 +7534,8 @@ def main(page: ft.Page):
                 weight=ft.FontWeight.BOLD
             ),
             content=ft.Container(
-                width=_w(440),
-                height=_w(500),
+                width=_w(480),
+                height=620,
                 content=ft.Column(
                     tight=True,
                     spacing=6,
@@ -7019,7 +7577,7 @@ def main(page: ft.Page):
             (2, ft.Icons.FOLDER_OPEN, "Ouvrir une sortie"),
             (3, ft.Icons.DELETE, "Supprimer la sortie"),
             (4, ft.Icons.UPLOAD_FILE, "Import FFESSM"),
-            (5, ft.Icons.MEDICAL_SERVICES,
+            (5, ft.Icons.HEALTH_AND_SAFETY,
              "Vérification CACI"),
             (6, ft.Icons.SETTINGS, "Paramètres"),
         ]
@@ -7100,6 +7658,9 @@ def main(page: ft.Page):
                 # Champs empilés verticalement (mobile)
                 sortie_nom,
                 sortie_lieu,
+                centre_switch,
+                centre_row,
+                ft.Container(height=10),
                 date_debut_row,
                 date_fin_row,
 
@@ -7332,7 +7893,6 @@ def main(page: ft.Page):
                     controls=[
 
                         ft.Row([
-                            t3_save_btn,
                             t3_export_btn,
                             t3_lock_btn,
                         ]),
@@ -7514,8 +8074,7 @@ def main(page: ft.Page):
                                             " une autre plongée",
                                             bgcolor="#8b5cf6",
                                             color="white",
-                                            on_click=lambda e:
-                                                t4_open_duplication()
+                                            on_click=t4_open_duplication
                                         ),
                                     ], wrap=True),
 
@@ -7541,6 +8100,32 @@ def main(page: ft.Page):
 
     t5_stats = ft.Text("", size=11, italic=True, color="#64748b")
 
+    # Switch portrait / paysage pour les fiches PDF
+    # Par défaut : Paysage (3 palanquées par ligne).
+    # value=True signifie Paysage, False signifie Portrait.
+    t5_orient_switch = ft.Switch(
+        label="PDF en format paysage",
+        value=True
+    )
+
+    def t5_get_orient_mode():
+        """Retourne 'paysage' si Switch ON, 'portrait'
+        sinon."""
+        return "paysage" if t5_orient_switch.value else "portrait"
+
+    def t5_on_orient_changed(e=None):
+        """Met à jour le libellé du Switch d'orientation
+        en fonction de sa valeur courante."""
+        if t5_orient_switch.value:
+            t5_orient_switch.label = "PDF en format paysage"
+        else:
+            t5_orient_switch.label = "PDF en format portrait"
+        try:
+            t5_orient_switch.update()
+        except Exception:
+            pass
+
+    t5_orient_switch.on_change = t5_on_orient_changed
     t5_dp_unique_field = ft.TextField(
         label="DP unique",
         width=240,
@@ -9606,8 +10191,29 @@ def main(page: ft.Page):
             return
 
         # Demander le(s) destinataire(s)
+        # Si la sortie a un centre lié avec un email,
+        # on pré-remplit le champ.
+        prefill_dest = ""
+        try:
+            if state.get("sortie_id"):
+                conn = sqlite3.connect(DB_PATH)
+                row = conn.execute(
+                    "SELECT cp.email"
+                    " FROM sorties s"
+                    " LEFT JOIN centres_plongee cp"
+                    " ON cp.id = s.centre_id"
+                    " WHERE s.id=?",
+                    (state["sortie_id"],)
+                ).fetchone()
+                conn.close()
+                if row and row[0]:
+                    prefill_dest = row[0]
+        except Exception as err:
+            print("prefill dest:", err)
+
         f_dest = ft.TextField(
             label="Destinataire(s), séparés par ;",
+            value=prefill_dest,
             dense=True
         )
 
@@ -9946,20 +10552,31 @@ def main(page: ft.Page):
                             bgcolor="#10b981", color="white",
                             on_click=t5_save_heures_dp
                         ),
+                    ]
+                ),
+
+                # Switch d'orientation pour les fiches PDF
+                t5_orient_switch,
+
+                ft.Row(
+                    wrap=True,
+                    controls=[
                         ft.FilledButton(
                             "📄 Générer les PDF sélectionnés",
                             bgcolor="#ef4444", color="white",
                             on_click=lambda e:
-                                t5_choose_orientation(
-                                    "generate"
+                                t5_generate_pdfs(
+                                    None,
+                                    mode=t5_get_orient_mode()
                                 )
                         ),
                         ft.FilledButton(
                             "✉️ Envoyer par email",
                             bgcolor="#0ea5e9", color="white",
                             on_click=lambda e:
-                                t5_choose_orientation(
-                                    "email"
+                                t5_send_emails(
+                                    None,
+                                    mode=t5_get_orient_mode()
                                 )
                         ),
                     ]
@@ -10082,15 +10699,30 @@ def main(page: ft.Page):
 
                     tabs=[
 
-                        ft.Tab(label="1. Sortie"),
+                        ft.Tab(
+                            icon=ft.Icons.EVENT,
+                            label="Sortie"
+                        ),
 
-                        ft.Tab(label="2. Participants"),
+                        ft.Tab(
+                            icon=ft.Icons.PEOPLE,
+                            label="Participants"
+                        ),
 
-                        ft.Tab(label="3. Plongées"),
+                        ft.Tab(
+                            icon=ft.Icons.LIST_ALT,
+                            label="Plongées"
+                        ),
 
-                        ft.Tab(label="4. Palanquées"),
+                        ft.Tab(
+                            icon=ft.Icons.GROUPS,
+                            label="Palanquées"
+                        ),
 
-                        ft.Tab(label="5. Fiches"),
+                        ft.Tab(
+                            icon=ft.Icons.DESCRIPTION,
+                            label="Fiches"
+                        ),
                     ]
                 )
             ]
@@ -10102,17 +10734,42 @@ def main(page: ft.Page):
     # =================================================
 
     # AppBar mobile compacte avec bouton menu (hamburger)
+    # Titre dynamique : "Sortie <nom> (date_debut [- date_fin])"
+    appbar_title_text = ft.Text(
+        "Sorties plongée",
+        size=15,
+        weight=ft.FontWeight.BOLD
+    )
+
+    def refresh_appbar_title():
+        """Recompose le titre selon la sortie active."""
+        nom = (sortie_nom.value or "").strip()
+        d1 = (date_debut.value or "").strip()
+        d2 = (date_fin.value or "").strip()
+        if not nom:
+            appbar_title_text.value = "Sorties plongée"
+        else:
+            if d1 and d2 and d1 != d2:
+                date_part = f" ({d1} - {d2})"
+            elif d1:
+                date_part = f" ({d1})"
+            else:
+                date_part = ""
+            appbar_title_text.value = (
+                f"Sortie {nom}{date_part}"
+            )
+        try:
+            appbar_title_text.update()
+        except Exception:
+            pass
+
     page.appbar = ft.AppBar(
         leading=ft.IconButton(
             icon=ft.Icons.MENU,
             on_click=open_drawer,
             tooltip="Menu"
         ),
-        title=ft.Text(
-            "Sorties plongée",
-            size=15,
-            weight=ft.FontWeight.BOLD
-        ),
+        title=appbar_title_text,
         center_title=False,
         bgcolor="#1e3a5f",
         color="white",
