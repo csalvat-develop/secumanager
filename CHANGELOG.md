@@ -8,6 +8,98 @@ et le projet adhère au [Versionnage Sémantique](https://semver.org/lang/fr/).
 
 ---
 
+## [0.7.5] — 2026-06
+
+### Ajouté
+
+- **Onglet « Composer »** (6e onglet, après Fiches).
+  Envoi d'un email ou d'un SMS groupé à tous les participants de
+  la sortie active, via l'application native du téléphone.
+  - Switch pour basculer entre mode Email et mode SMS (libellé
+    dynamique).
+  - Compteur de destinataires valides (vert si OK, rouge sinon),
+    actualisé à l'entrée dans l'onglet et au changement de mode.
+  - Champ « Objet » pré-rempli à l'entrée dans l'onglet avec
+    `Sortie [Nom] du [date_début] [au date_fin]`, modifiable
+    librement.
+  - Champ « Corps du message » multi-ligne, pleine largeur.
+  - Bouton « ✉️ Ouvrir l'app pour envoyer ».
+  - Mode Email : tous les destinataires en BCC (copie cachée)
+    pour respecter la confidentialité.
+  - Mode SMS : `sms:numéros,…?body=…` avec numéros nettoyés
+    (espaces, tirets, parenthèses, points retirés).
+
+- **Boutons d'action Email / Tél / SMS** dans les fiches
+  plongeur (Onglet Participants et menu Vérification CACI).
+  Trois `IconButton` colorés et centrés en bas de la fiche :
+  ✉️ bleu (mailto), 📞 vert (tel), 💬 orange (sms).
+  Chaque bouton est désactivé si la donnée correspondante est
+  absente. Tous passent par un helper `safe_launch_url`
+  compatible avec Android (voir Corrections).
+
+- **Helper `safe_launch_url`** pour ouvrir une URL via
+  `page.launch_url` avec le bon pattern coroutine async, requis
+  par Flet 0.85 sur Android. Évite que les boutons mailto, tel
+  ou sms restent silencieux. Pas de message snack après
+  l'appel pour ne pas voler le focus à l'intent Android.
+
+### Modifié
+
+- **Onglet Palanquées — Pop-up Gaz** : le slider % O₂ et son
+  libellé ne s'affichent plus que si « Nitrox » est sélectionné.
+  En mode « Air », ces éléments sont masqués (pas d'information
+  inutile à l'écran).
+
+- **Onglet Palanquées — Compteur** : remplacement de
+  « X plongeur(s) sur cette plongée » par
+  « X plongeurs » (≥2) ou « X plongeur » (0 ou 1). La mention
+  redondante « → voir la synthèse » est retirée (le clic sur
+  le bouton ouvre toujours la synthèse).
+
+- **Onglet Palanquées — Types de palanquée** :
+  - Boutons radio « Exploration encadrée » et « Exploration
+    autonome » raccourcis en « Explo. encadrée » / « Explo.
+    autonome » (les valeurs internes restent inchangées pour
+    préserver le code existant).
+  - Les deux radios « Explo. » sont sur une même ligne, comme
+    les radios « Technique » et « Baptême ». Total : 2 lignes
+    au lieu de 4.
+
+- **Onglet Palanquées — Champs profondeur / durée / DTR** :
+  largeurs et labels réduits pour tenir sur une seule ligne sur
+  mobile : « Prof. (m) » (100 px) — « Durée (min) » (110 px) —
+  « DTR (min) » (100 px, hint « opt. »).
+
+- **Onglet Participants — Fiche plongeur** : refonte de la
+  mise en page dans l'esprit ClubMessenger.
+  - En-tête sombre conservé (icône 🤿 + nom prénom blanc 18 pt,
+    numéro de licence en italique gris clair).
+  - Lignes label/valeur uniformes sur une seule ligne (label
+    gris à gauche, valeur à droite), au lieu du label gras
+    au-dessus + valeur en dessous. Lecture plus dense.
+  - Sections séparées par des Dividers : identité, santé,
+    plongée, contact, admin.
+  - Statut CACI affiché en badge coloré (« Périmé » / « À
+    renouveler » / « Valide ») en complément de la date.
+  - Valeurs sélectionnables pour copier-coller (email, licence,
+    téléphone).
+
+- **Onglet Participants — Liste des brevets** : scroll
+  horizontal individuel par ligne pour les noms de brevets
+  longs, avec `no_wrap=True` pour empêcher le passage à la
+  ligne. Le dialogue garde une largeur stable.
+
+### Corrigé
+
+- **Lancement d'apps externes sur Android** : `page.launch_url`
+  étant une coroutine en Flet 0.85, l'ancien appel synchrone
+  direct était ignoré silencieusement sur Android. Toutes les
+  ouvertures (mailto, tel, sms, geo:, https:) passent
+  maintenant par `safe_launch_url` qui utilise
+  `page.run_task(async def: await page.launch_url(url))`.
+
+---
+
 ## [0.7.0] — 2026-06
 
 ### Ajouté

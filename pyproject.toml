@@ -1,6 +1,6 @@
 [project]
 name = "secu_manager"
-version = "0.7.0"
+version = "0.7.5"
 description = "Gestion des sorties de plongee FFESSM (CSSA)"
 requires-python = ">=3.9"
 readme = "README.md"
@@ -42,7 +42,7 @@ copyright = "Copyright (C) 2026 Cedric SALVAT - GPL-3.0-or-later"
 # 0.5.4, 505 pour 0.5.5, 600 pour 0.6.0, 1000 pour 1.0.0.
 # A incrementer obligatoirement avant chaque nouvel
 # upload sur la Play Console.
-build_number = 700
+build_number = 705
 
 [tool.flet.app]
 # Dossier contenant main.py et le sous-dossier assets/

@@ -69,7 +69,7 @@ def clean_txt(s):
 # VERSION
 # =====================================================
 
-APP_VERSION = "0.7.0"
+APP_VERSION = "0.7.5"
 
 # =====================================================
 # BASE SQLITE
@@ -777,6 +777,29 @@ def main(page: ft.Page):
         except Exception:
             return min(maxv, 360)
 
+    def safe_launch_url(url):
+        """Ouvre une URL via page.launch_url avec le bon
+        pattern async pour Flet 0.85 sur Android.
+        - page.launch_url est une coroutine en 0.85, donc
+          un appel direct ne marche pas sur Android.
+        - On wrappe dans async def + page.run_task.
+        - Pas de snack/popup après l'appel : ça volerait
+          le focus et tuerait l'intent Android.
+        """
+        async def _do():
+            try:
+                await page.launch_url(url)
+            except Exception:
+                pass
+        try:
+            page.run_task(_do)
+        except Exception:
+            # Fallback synchrone pour desktop / vieux Flet
+            try:
+                page.launch_url(url)
+            except Exception:
+                pass
+
     init_db()
 
     # Installer les logos par défaut au premier lancement
@@ -999,10 +1022,7 @@ def main(page: ft.Page):
         _id, nom, adr, gps, tel, mail = row
 
         def open_url(url):
-            try:
-                page.launch_url(url)
-            except Exception as err:
-                show_message(f"Impossible d'ouvrir : {err}")
+            safe_launch_url(url)
 
         controls = [
             ft.Text(
@@ -3048,6 +3068,60 @@ def main(page: ft.Page):
             )
         )
 
+        # ─── Lignes style ClubMessenger ─────────────
+        # Label à 130 px à gauche, valeur côte à côte
+        def ligne(label, valeur, couleur=None):
+            return ft.Row([
+                ft.Text(
+                    label,
+                    size=12,
+                    color="#64748b",
+                    width=130
+                ),
+                ft.Text(
+                    valeur or "—",
+                    size=12,
+                    color=couleur or "#0f172a",
+                    expand=True,
+                    selectable=True
+                ),
+            ])
+
+        # Statut CACI : badge coloré au lieu d'un texte
+        # de couleur (plus visible).
+        _caci_col_key = caci_color(caci)
+        if _caci_col_key == "red":
+            statut_caci_str = "Périmé"
+        elif _caci_col_key == "orange":
+            statut_caci_str = "À renouveler"
+        elif _caci_col_key == "green":
+            statut_caci_str = "Valide"
+        else:
+            statut_caci_str = "—"
+        badge_caci = ft.Container(
+            content=ft.Text(
+                statut_caci_str,
+                size=11,
+                color="white",
+                weight=ft.FontWeight.BOLD
+            ),
+            bgcolor=ccol if caci else "#94a3b8",
+            border_radius=4,
+            padding=ft.Padding(
+                left=8, right=8, top=3, bottom=3
+            )
+        )
+
+        ligne_caci_statut = ft.Row([
+            ft.Text(
+                "Statut CACI",
+                size=12,
+                color="#64748b",
+                width=130
+            ),
+            badge_caci,
+        ])
+
         fiche_dialog = ft.AlertDialog(
 
             modal=True,
@@ -3097,80 +3171,104 @@ def main(page: ft.Page):
 
                     tight=True,
 
-                    spacing=6,
+                    spacing=8,
 
                     scroll=ft.ScrollMode.AUTO,
 
                     controls=[
 
-                        line("Nom :", nom_b),
-
-                        line("Prénom :", pren_b),
-
-                        line("Âge :", age_str),
-
-                        line(
-
-                            "Fin validité CACI :",
-
-                            caci or "—",
-
-                            color=ccol,
-
-                            bold=True
-                        ),
-
-                        line("Saison :", saison),
-
-                        ft.Container(
-                            padding=ft.Padding(
-                                left=0, right=0,
-                                top=2, bottom=2
-                            ),
-                            content=ft.Column(
-                                tight=True,
-                                spacing=0,
-                                controls=[
-                                    ft.Text(
-                                        "Brevets :",
-                                        size=11,
-                                        weight=ft.FontWeight.BOLD,
-                                        color="#475569"
-                                    ),
-                                    brevets_btn,
-                                ]
-                            )
-                        ),
-
-                        line(
-
-                            "Niveau en préparation :",
-
-                            prepa_value
-                        ),
-
-                        line(
-
-                            "Type de licence :",
-
-                            type_lic
-                        ),
-
-                        line_link(
-                            "Portable :", portable, "tel:"
-                        ),
-
-                        line_link(
-                            "Email :", email, "mailto:"
-                        ),
+                        # ── Bloc identité ──
+                        ligne("Âge", age_str),
+                        ligne("Date de naissance",
+                              naiss or "—"),
+                        ligne("Type de licence",
+                              type_lic or "—"),
+                        ligne("Saison", saison or "—"),
 
                         ft.Divider(),
 
-                        line(
+                        # ── Bloc santé ──
+                        ligne("Fin validité CACI",
+                              caci or "—", couleur=ccol),
+                        ligne_caci_statut,
 
-                            "Date d'inscription :",
+                        ft.Divider(),
 
-                            inscription
+                        # ── Bloc plongée ──
+                        ft.Row([
+                            ft.Text(
+                                "Brevets",
+                                size=12,
+                                color="#64748b",
+                                width=130
+                            ),
+                            brevets_btn,
+                        ]),
+                        ligne("Niveau en préparation",
+                              prepa_value or "—"),
+
+                        ft.Divider(),
+
+                        # ── Bloc contact ──
+                        ligne("Portable", portable),
+                        ligne("Email", email),
+
+                        ft.Divider(),
+
+                        # ── Bloc admin ──
+                        ligne("Date d'inscription",
+                              inscription),
+
+                        ft.Divider(),
+
+                        # ── Barre d'actions (icônes) ──
+                        ft.Row(
+                            spacing=12,
+                            alignment=ft.MainAxisAlignment.CENTER,
+                            controls=[
+                                ft.IconButton(
+                                    icon=ft.Icons.EMAIL,
+                                    icon_color="#0ea5e9",
+                                    icon_size=28,
+                                    tooltip="Envoyer un email",
+                                    disabled=not bool(email),
+                                    on_click=(
+                                        (lambda ev, m=email:
+                                            safe_launch_url(
+                                                f"mailto:{m}"
+                                            ))
+                                        if email else None
+                                    )
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.PHONE,
+                                    icon_color="#10b981",
+                                    icon_size=28,
+                                    tooltip="Appeler",
+                                    disabled=not bool(portable),
+                                    on_click=(
+                                        (lambda ev, t=portable:
+                                            safe_launch_url(
+                                                f"tel:{t}"
+                                            ))
+                                        if portable else None
+                                    )
+                                ),
+                                ft.IconButton(
+                                    icon=ft.Icons.SMS,
+                                    icon_color="#f59e0b",
+                                    icon_size=28,
+                                    tooltip="Envoyer un SMS",
+                                    disabled=not bool(portable),
+                                    on_click=(
+                                        (lambda ev, t=portable:
+                                            safe_launch_url(
+                                                f"sms:{t}"
+                                            ))
+                                        if portable else None
+                                    )
+                                ),
+                            ]
                         ),
                     ]
                 )
@@ -3214,8 +3312,16 @@ def main(page: ft.Page):
                                 size=11
                             ),
 
-                            ft.Text(b, size=12)
-                        ]
+                            ft.Text(
+                                b,
+                                size=12,
+                                no_wrap=True
+                            ),
+                        ],
+
+                        scroll=ft.ScrollMode.AUTO,
+
+                        tight=True
                     ),
 
                     bgcolor=bg,
@@ -4803,15 +4909,16 @@ def main(page: ft.Page):
 
         content=ft.Column([
 
-            ft.Radio(
-                value="Exploration encadrée",
-                label="Exploration encadrée"
-            ),
-
-            ft.Radio(
-                value="Exploration autonome",
-                label="Exploration autonome"
-            ),
+            ft.Row([
+                ft.Radio(
+                    value="Exploration encadrée",
+                    label="Explo. encadrée"
+                ),
+                ft.Radio(
+                    value="Exploration autonome",
+                    label="Explo. autonome"
+                ),
+            ], spacing=8, tight=True),
 
             ft.Row([
                 ft.Radio(
@@ -4928,24 +5035,24 @@ def main(page: ft.Page):
     t4_membres_column = ft.Column(spacing=2)
 
     t4_prof_field = ft.TextField(
-        label="Prof. max (m)",
+        label="Prof. (m)",
         value="20",
-        width=120,
+        width=100,
         dense=True
     )
 
     t4_duree_field = ft.TextField(
-        label="Durée max (min)",
+        label="Durée (min)",
         value="45",
-        width=130,
+        width=110,
         dense=True
     )
 
     t4_dtr_field = ft.TextField(
-        label="DTR max (min)",
+        label="DTR (min)",
         value="",
-        hint_text="facultatif",
-        width=120,
+        hint_text="opt.",
+        width=100,
         dense=True
     )
 
@@ -5088,10 +5195,12 @@ def main(page: ft.Page):
 
         n = len(t4_state["dispo"])
 
-        t4_info_btn.content = ft.Text(
-            f"📊  {n} plongeur(s) sur cette plongée "
-            f"\n —> voir la synthèse"
-        )
+        if n >= 2:
+            label_n = f"📊  {n} plongeurs sur cette plongée "
+        else:
+            label_n = f"📊  {n} plongeur sur cette plongée "
+
+        t4_info_btn.content = ft.Text(label_n)
 
         t4_reset_form()
         t4_refresh_palanquees_display()
@@ -5523,17 +5632,6 @@ def main(page: ft.Page):
 
             def open_gas_dialog(e):
 
-                choix_gaz = ft.RadioGroup(
-                    value=gas_state["gaz"],
-                    content=ft.Row([
-                        ft.Radio(value="Air", label="Air"),
-                        ft.Radio(
-                            value="Nitrox",
-                            label="Nitrox"
-                        ),
-                    ])
-                )
-
                 pct_value_lbl = ft.Text(
                     f"{gas_state['pct']} % O₂",
                     size=14,
@@ -5546,6 +5644,43 @@ def main(page: ft.Page):
                     divisions=19,
                     value=gas_state["pct"],
                     label="{value}%"
+                )
+
+                # Le bloc % O2 est dans son propre
+                # conteneur dont la visibilité dépend
+                # du choix Air/Nitrox.
+                nitrox_block = ft.Column(
+                    tight=True,
+                    spacing=6,
+                    visible=(
+                        gas_state["gaz"] == "Nitrox"
+                    ),
+                    controls=[
+                        pct_value_lbl,
+                        pct_choice,
+                    ]
+                )
+
+                def on_gaz_change(ev):
+                    is_nx = (
+                        choix_gaz.value == "Nitrox"
+                    )
+                    nitrox_block.visible = is_nx
+                    try:
+                        nitrox_block.update()
+                    except Exception:
+                        pass
+
+                choix_gaz = ft.RadioGroup(
+                    value=gas_state["gaz"],
+                    on_change=on_gaz_change,
+                    content=ft.Row([
+                        ft.Radio(value="Air", label="Air"),
+                        ft.Radio(
+                            value="Nitrox",
+                            label="Nitrox"
+                        ),
+                    ])
                 )
 
                 def on_slider(ev, lbl=pct_value_lbl,
@@ -5589,15 +5724,7 @@ def main(page: ft.Page):
                             spacing=12,
                             controls=[
                                 choix_gaz,
-                                pct_value_lbl,
-                                pct_choice,
-                                ft.Text(
-                                    "Le % n'est utilisé"
-                                    " que pour le Nitrox.",
-                                    size=10,
-                                    italic=True,
-                                    color="#94a3b8"
-                                ),
+                                nitrox_block,
                             ]
                         )
                     ),
@@ -7266,7 +7393,7 @@ def main(page: ft.Page):
             row = conn.execute(
                 "SELECT nom, prenom, niveau, brevets,"
                 " brevet_nitrox, caci_date,"
-                " date_naissance, telephone, email"
+                " date_naissance, portable, email"
                 " FROM plongeurs_club"
                 " WHERE UPPER(nom)=UPPER(?)"
                 " AND UPPER(prenom)=UPPER(?)",
@@ -7289,6 +7416,9 @@ def main(page: ft.Page):
 
         age = calc_age(naiss or "")
         age_str = f" ({age} ans)" if age is not None else ""
+
+        def open_url_p(url):
+            safe_launch_url(url)
 
         lignes = [
             ft.Text(
@@ -7318,15 +7448,77 @@ def main(page: ft.Page):
                 f"Naissance : {naiss or '—'}",
                 size=12
             ),
+        ]
+        # Téléphone et email affichés en simple texte
+        # (les actions sont en bas via icônes).
+        lignes.append(
             ft.Text(
                 f"Téléphone : {tel or '—'}",
                 size=12
-            ),
+            )
+        )
+        lignes.append(
             ft.Text(
                 f"Email : {mail or '—'}",
                 size=12
-            ),
-        ]
+            )
+        )
+
+        # Barre d'actions en bas : Email / Tél / SMS
+        # Boutons désactivés si la donnée correspondante
+        # n'est pas renseignée.
+        action_buttons = []
+        action_buttons.append(
+            ft.IconButton(
+                icon=ft.Icons.EMAIL,
+                icon_color="#0ea5e9",
+                icon_size=28,
+                tooltip="Envoyer un email",
+                disabled=not bool(mail),
+                on_click=(
+                    (lambda ev, m=mail:
+                        open_url_p(f"mailto:{m}"))
+                    if mail else None
+                )
+            )
+        )
+        action_buttons.append(
+            ft.IconButton(
+                icon=ft.Icons.PHONE,
+                icon_color="#10b981",
+                icon_size=28,
+                tooltip="Appeler",
+                disabled=not bool(tel),
+                on_click=(
+                    (lambda ev, t=tel:
+                        open_url_p(f"tel:{t}"))
+                    if tel else None
+                )
+            )
+        )
+        action_buttons.append(
+            ft.IconButton(
+                icon=ft.Icons.SMS,
+                icon_color="#f59e0b",
+                icon_size=28,
+                tooltip="Envoyer un SMS",
+                disabled=not bool(tel),
+                on_click=(
+                    (lambda ev, t=tel:
+                        open_url_p(f"sms:{t}"))
+                    if tel else None
+                )
+            )
+        )
+
+        lignes.append(ft.Divider())
+        lignes.append(
+            ft.Row(
+                spacing=12,
+                alignment=ft.MainAxisAlignment.CENTER,
+                controls=action_buttons
+            )
+        )
 
         fiche_dlg = ft.AlertDialog(
             modal=True,
@@ -10673,6 +10865,11 @@ def main(page: ft.Page):
             content_area.content = tab5
             refresh_tab5()
 
+        elif idx == 5:
+            content_area.content = tab6
+            t6_refresh_subject()
+            t6_refresh_count()
+
         page.update()
 
     # =================================================
@@ -10681,7 +10878,7 @@ def main(page: ft.Page):
 
     tabs = ft.Tabs(
 
-        length=5,
+        length=6,
 
         selected_index=0,
 
@@ -10723,8 +10920,283 @@ def main(page: ft.Page):
                             icon=ft.Icons.DESCRIPTION,
                             label="Fiches"
                         ),
+
+                        ft.Tab(
+                            icon=ft.Icons.EDIT_NOTE,
+                            label="Composer"
+                        ),
                     ]
                 )
+            ]
+        )
+    )
+
+    # =================================================
+    # ONGLET 6 — COMPOSER (mail ou SMS aux participants)
+    # =================================================
+
+    # Mode : True = Email, False = SMS
+    t6_mode_switch = ft.Switch(
+        label="Mode : Email (sinon SMS)",
+        value=True
+    )
+
+    t6_subject_field = ft.TextField(
+        label="Objet (email uniquement)",
+        dense=True,
+        expand=True
+    )
+
+    t6_body_field = ft.TextField(
+        label="Corps du message",
+        multiline=True,
+        min_lines=6,
+        max_lines=12,
+        dense=True,
+        expand=True
+    )
+
+    t6_count_text = ft.Text(
+        "",
+        size=11,
+        italic=True,
+        color="#64748b"
+    )
+
+    def t6_on_mode_changed(e=None):
+        """Met à jour le libellé du Switch selon le
+        mode et rafraîchit le compteur de destinataires
+        valides."""
+        if t6_mode_switch.value:
+            t6_mode_switch.label = "Mode : Email (sinon SMS)"
+        else:
+            t6_mode_switch.label = "Mode : SMS (sinon Email)"
+        try:
+            t6_mode_switch.update()
+        except Exception:
+            pass
+        t6_refresh_count()
+
+    t6_mode_switch.on_change = t6_on_mode_changed
+
+    def t6_get_destinataires():
+        """Retourne la liste des emails ou téléphones
+        des participants de la sortie active selon le
+        mode courant. Utilise la base plongeurs_club
+        pour récupérer les coordonnées (colonnes
+        'email' et 'portable')."""
+        if not state.get("sortie_id"):
+            return []
+        try:
+            conn = sqlite3.connect(DB_PATH)
+            rows = conn.execute(
+                "SELECT pa.nom, pa.prenom,"
+                " pc.email, pc.portable"
+                " FROM participants pa"
+                " LEFT JOIN plongeurs_club pc"
+                " ON UPPER(pc.nom)=UPPER(pa.nom)"
+                " AND UPPER(pc.prenom)=UPPER(pa.prenom)"
+                " WHERE pa.sortie_id=?"
+                " AND pa.type='plongeur'",
+                (state["sortie_id"],)
+            ).fetchall()
+            conn.close()
+        except Exception:
+            return []
+
+        if t6_mode_switch.value:
+            # Mode Email
+            return [
+                (r[2] or "").strip()
+                for r in rows
+                if (r[2] or "").strip()
+            ]
+        else:
+            # Mode SMS : nettoyer les numéros
+            # (chiffres et + initial uniquement)
+            import re as _re
+            out = []
+            for r in rows:
+                num = (r[3] or "").strip()
+                if not num:
+                    continue
+                cleaned = _re.sub(r"[^\d+]", "", num)
+                if cleaned:
+                    out.append(cleaned)
+            return out
+
+    def t6_refresh_count():
+        """Met à jour le texte qui indique combien de
+        destinataires valides on a."""
+        dests = t6_get_destinataires()
+        if not state.get("sortie_id"):
+            t6_count_text.value = (
+                "(aucune sortie active)"
+            )
+            t6_count_text.color = "#ef4444"
+        elif not dests:
+            kind = (
+                "email" if t6_mode_switch.value
+                else "téléphone"
+            )
+            t6_count_text.value = (
+                f"Aucun participant avec {kind}"
+                " renseigné."
+            )
+            t6_count_text.color = "#ef4444"
+        else:
+            kind = (
+                "email" if t6_mode_switch.value
+                else "SMS"
+            )
+            t6_count_text.value = (
+                f"{len(dests)} destinataire(s)"
+                f" {kind} valides."
+            )
+            t6_count_text.color = "#10b981"
+        try:
+            t6_count_text.update()
+        except Exception:
+            pass
+
+    def t6_build_subject():
+        """Construit l'objet du message :
+        'Sortie <nom> du <d_debut> [au <d_fin>]'."""
+        nom = (sortie_nom.value or "").strip() or "(?)"
+        d1 = (date_debut.value or "").strip()
+        d2 = (date_fin.value or "").strip()
+        if d1 and d2 and d1 != d2:
+            dates = f"du {d1} au {d2}"
+        elif d1:
+            dates = f"du {d1}"
+        else:
+            dates = ""
+        if dates:
+            return f"Sortie {nom} {dates}"
+        return f"Sortie {nom}"
+
+    def t6_refresh_subject():
+        """Pré-remplit le champ sujet avec la valeur
+        calculée si le champ est vide. Sinon, laisse
+        l'utilisateur garder sa modification."""
+        if not (t6_subject_field.value or "").strip():
+            t6_subject_field.value = t6_build_subject()
+            try:
+                t6_subject_field.update()
+            except Exception:
+                pass
+
+    def t6_envoyer(e=None):
+        """Lance l'app mail ou SMS native avec tous les
+        destinataires pré-remplis et le corps saisi."""
+        if not state.get("sortie_id"):
+            show_message(
+                "Aucune sortie active."
+            )
+            return
+
+        dests = t6_get_destinataires()
+        if not dests:
+            kind = (
+                "email" if t6_mode_switch.value
+                else "téléphone"
+            )
+            show_message(
+                f"Aucun participant avec un"
+                f" {kind} renseigné."
+            )
+            return
+
+        corps = (t6_body_field.value or "").strip()
+        if not corps:
+            show_message(
+                "Saisir un corps de message."
+            )
+            return
+
+        import urllib.parse as _uparse
+
+        if t6_mode_switch.value:
+            # Mode Email : sujet + corps + BCC pour
+            # protéger les emails entre destinataires.
+            # On prend la valeur du champ sujet (qui peut
+            # avoir été modifié par l'utilisateur).
+            subj_raw = (t6_subject_field.value or "").strip()
+            if not subj_raw:
+                subj_raw = t6_build_subject()
+            subj = _uparse.quote(subj_raw)
+            body_enc = _uparse.quote(corps)
+            bcc = ",".join(dests)
+            # mailto vide en TO, tout en BCC
+            url = (
+                f"mailto:?bcc={bcc}"
+                f"&subject={subj}&body={body_enc}"
+            )
+        else:
+            # Mode SMS : sms:<numéros>?body=<texte>
+            body_enc = _uparse.quote(corps)
+            nums = ",".join(dests)
+            url = f"sms:{nums}?body={body_enc}"
+
+        safe_launch_url(url)
+        # Pas de show_message ici : volerait le focus
+        # et tuerait l'intent Android (cf. retour
+        # d'expérience ClubMessenger).
+
+    t6_envoyer_btn = ft.FilledButton(
+        "✉️ Ouvrir l'app pour envoyer",
+        bgcolor="#0ea5e9",
+        color="white",
+        on_click=t6_envoyer
+    )
+
+    tab6 = ft.Container(
+        expand=True,
+        padding=15,
+        content=ft.Column(
+            expand=True,
+            spacing=12,
+            scroll=ft.ScrollMode.AUTO,
+            controls=[
+                ft.Text(
+                    "📝 Composer un message groupé",
+                    size=15,
+                    weight=ft.FontWeight.BOLD
+                ),
+                ft.Text(
+                    "Envoie un email ou un SMS à tous"
+                    " les participants de la sortie"
+                    " active.",
+                    size=11,
+                    italic=True,
+                    color="#64748b"
+                ),
+                ft.Divider(),
+                t6_mode_switch,
+                t6_count_text,
+                ft.Divider(),
+                ft.Row([
+                    t6_subject_field,
+                ]),
+                ft.Row([
+                    t6_body_field,
+                ]),
+                ft.Row([
+                    t6_envoyer_btn,
+                ]),
+                ft.Container(height=10),
+                ft.Text(
+                    "ℹ️ Au clic, l'app de messagerie ou"
+                    " l'app SMS native s'ouvrira avec"
+                    " les destinataires pré-remplis."
+                    " Pour les emails, tous les"
+                    " destinataires sont en BCC (copie"
+                    " cachée) pour préserver leur"
+                    " confidentialité.",
+                    size=11,
+                    italic=True,
+                    color="#64748b"
+                ),
             ]
         )
     )
